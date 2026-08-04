@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
-// The local Codex bridge is Node-only and intentionally excluded from the browser bundle.
+// The current-thread bridge is Node-only and intentionally excluded from the browser bundle.
 // @ts-expect-error The bridge is a checked JavaScript module used by Vite middleware.
-import { handleCodexMoveRequest } from './server/codex-app-player.mjs';
+import { handleCurrentThreadGameRequest } from './server/current-thread-game.mjs';
 
 export default defineConfig({
   base: './',
@@ -11,10 +11,15 @@ export default defineConfig({
   },
   plugins: [
     {
-      name: 'local-codex-gomoku-player',
+      name: 'current-thread-gomoku-bridge',
       configureServer(server) {
-        server.middlewares.use('/api/codex-move', (request, response) => {
-          void handleCodexMoveRequest(request, response);
+        server.middlewares.use((request, response, next) => {
+          const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
+          if (url.pathname.startsWith('/api/current-game/')) {
+            void handleCurrentThreadGameRequest(request, response, url);
+            return;
+          }
+          next();
         });
       },
     },

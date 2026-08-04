@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleCodexMoveRequest } from './server/codex-app-player.mjs';
+import { handleCurrentThreadGameRequest } from './server/current-thread-game.mjs';
 
 const root = fileURLToPath(new URL('./dist/', import.meta.url));
 const port = Number(process.env.LUO_GOMOKU_PORT || 8082);
@@ -17,8 +17,8 @@ const mime = {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
-  if (url.pathname === '/api/codex-move') {
-    await handleCodexMoveRequest(request, response);
+  if (url.pathname.startsWith('/api/current-game/')) {
+    await handleCurrentThreadGameRequest(request, response, url);
     return;
   }
 

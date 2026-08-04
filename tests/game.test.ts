@@ -110,6 +110,7 @@ describe('异步 AI 落子', () => {
       game: oldGame,
       currentDifficulty: 3,
       retryCodexBtn: { classList: { add: vi.fn(), remove: vi.fn() } },
+      codexMessageEl: { textContent: '' },
       container: { querySelector: vi.fn(() => thinkingIndicator) },
     });
 

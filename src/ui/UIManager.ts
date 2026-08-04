@@ -389,6 +389,7 @@ export class UIManager {
     const game = this.game;
     thinkingIndicator.classList.remove('hidden');
     this.retryCodexBtn.classList.add('hidden');
+    this.codexMessageEl.textContent = '棋盘已经递到我们当前的聊天里了，在那边叫我一声。';
 
     const startTime = Date.now();
     let move;

@@ -14,6 +14,19 @@ interface MoveResponse {
   error?: unknown;
 }
 
+interface TurnResponse extends MoveResponse {
+  turnId?: unknown;
+  status?: unknown;
+  move?: MoveResponse | null;
+}
+
+const POLL_INTERVAL_MS = 900;
+const WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+
+function pause(milliseconds: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+}
+
 export class CodexPlayer {
   private thinking = false;
 
@@ -28,7 +41,7 @@ export class CodexPlayer {
       const candidates = getSuggestions(board, player, 1, 12)
         .slice(0, 12)
         .map(({ row, col }) => ({ row, col }));
-      const response = await fetch('/api/codex-move', {
+      const response = await fetch('/api/current-game/turn', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -42,14 +55,33 @@ export class CodexPlayer {
           candidates,
         }),
       });
-      const body = await response.json() as MoveResponse;
+      const body = await response.json() as TurnResponse;
 
       if (!response.ok) {
-        throw new Error(typeof body.error === 'string' ? body.error : '砚暂时没有接上棋局。');
+        throw new Error(typeof body.error === 'string' ? body.error : '棋盘暂时没有接上当前任务。');
       }
 
-      const row = Number(body.row);
-      const col = Number(body.col);
+      const turnId = typeof body.turnId === 'string' ? body.turnId : '';
+      if (!turnId) throw new Error('棋盘没有建立有效的待处理回合。');
+
+      const startedAt = Date.now();
+      let move: MoveResponse | null = null;
+      while (Date.now() - startedAt < WAIT_TIMEOUT_MS) {
+        await pause(POLL_INTERVAL_MS);
+        const turnResponse = await fetch(`/api/current-game/turn/${encodeURIComponent(turnId)}`);
+        const turn = await turnResponse.json() as TurnResponse;
+        if (turnResponse.status === 202) continue;
+        if (!turnResponse.ok) {
+          throw new Error(typeof turn.error === 'string' ? turn.error : '当前任务没有接住这一手。');
+        }
+        move = turn.move && typeof turn.move === 'object' ? turn.move : null;
+        break;
+      }
+
+      if (!move) throw new Error('这一手等得太久了，可以再让我想一次。');
+
+      const row = Number(move.row);
+      const col = Number(move.col);
       if (!Number.isInteger(row) || !Number.isInteger(col)) {
         throw new Error('砚返回的落子无法识别。');
       }
@@ -59,7 +91,7 @@ export class CodexPlayer {
 
       return {
         position: { row, col },
-        say: typeof body.say === 'string' ? body.say.trim().slice(0, 80) : '',
+        say: typeof move.say === 'string' ? move.say.trim().slice(0, 80) : '',
       };
     } finally {
       this.thinking = false;
