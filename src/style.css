@@ -284,6 +284,25 @@ canvas:focus-visible {
   line-height: 1.7;
 }
 
+.retry-codex {
+  margin-top: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--blue);
+  border-radius: 10px;
+  color: var(--blue-deep);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.retry-codex:hover {
+  background: #ffffff;
+}
+
+.retry-codex.hidden {
+  display: none;
+}
+
 /* The fork keeps these controls in the DOM for compatibility, but our private game does not expose them. */
 .controls-section > .control-group:nth-child(3),
 .controls-section > .control-group:nth-child(4),

@@ -63,6 +63,32 @@ describe('计时规则', () => {
 });
 
 describe('异步 AI 落子', () => {
+  it('Codex 连接失败时保留棋局并显示重试入口', async () => {
+    const game = startGame(0);
+    expect(game.makeMove(7, 7)).toBe(true);
+
+    const ui = Object.create(UIManager.prototype) as UIManager;
+    const thinkingIndicator = { classList: { add: vi.fn(), remove: vi.fn() } };
+    const retryCodexBtn = { classList: { add: vi.fn(), remove: vi.fn() } };
+    const codexMessageEl = { textContent: '' };
+
+    Object.assign(ui as object, {
+      codex: { computeMove: vi.fn().mockRejectedValue(new Error('连接已断开')) },
+      game,
+      currentDifficulty: 3,
+      retryCodexBtn,
+      codexMessageEl,
+      container: { querySelector: vi.fn(() => thinkingIndicator) },
+    });
+
+    await (ui as any).triggerAIMove();
+
+    expect(game.board.moveCount).toBe(1);
+    expect(game.currentPlayer).toBe(WHITE);
+    expect(codexMessageEl.textContent).toContain('这手还没有落下');
+    expect(retryCodexBtn.classList.remove).toHaveBeenCalledWith('hidden');
+  });
+
   it('重开或换边后拒绝旧棋局的计算结果', async () => {
     let resolveMove!: (move: { position: { row: number; col: number }; say: string }) => void;
     const oldGame = startGame(0);
@@ -83,6 +109,7 @@ describe('异步 AI 落子', () => {
       codex,
       game: oldGame,
       currentDifficulty: 3,
+      retryCodexBtn: { classList: { add: vi.fn(), remove: vi.fn() } },
       container: { querySelector: vi.fn(() => thinkingIndicator) },
     });
 

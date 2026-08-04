@@ -33,6 +33,7 @@ export class UIManager {
   private themeBtn!: HTMLElement;
   private suggestBtn!: HTMLElement;
   private codexMessageEl!: HTMLElement;
+  private retryCodexBtn!: HTMLButtonElement;
 
   private currentMode: GameMode = 'pvai';
   private currentDifficulty: Difficulty = 3;
@@ -127,6 +128,7 @@ export class UIManager {
             <div class="codex-note" aria-live="polite">
               <span class="codex-note-label">砚</span>
               <p id="codexMessage">你先落子，我在这边看着棋盘。</p>
+              <button class="retry-codex hidden" id="retryCodexBtn" type="button">再让我想一次</button>
             </div>
 
             <!-- Game modes -->
@@ -244,6 +246,7 @@ export class UIManager {
     this.themeBtn = this.container.querySelector('#themeBtn')!;
     this.suggestBtn = this.container.querySelector('#suggestBtn')!;
     this.codexMessageEl = this.container.querySelector('#codexMessage')!;
+    this.retryCodexBtn = this.container.querySelector('#retryCodexBtn')!;
   }
 
   private bindEvents(): void {
@@ -297,6 +300,15 @@ export class UIManager {
     this.switchSideBtn.addEventListener('click', () => this.switchSide());
     this.themeBtn.addEventListener('click', () => this.toggleTheme());
     this.suggestBtn.addEventListener('click', () => this.toggleSuggestions());
+    this.retryCodexBtn.addEventListener('click', () => {
+      if (
+        this.game.status === 'playing' &&
+        this.game.currentPlayer === this.aiPlayer &&
+        !this.codex.isThinking()
+      ) {
+        void this.triggerAIMove();
+      }
+    });
 
     // Result overlay
     this.container.querySelector('#rematchBtn')?.addEventListener('click', () => {
@@ -376,6 +388,7 @@ export class UIManager {
     const thinkingIndicator = this.container.querySelector('#thinkingIndicator')!;
     const game = this.game;
     thinkingIndicator.classList.remove('hidden');
+    this.retryCodexBtn.classList.add('hidden');
 
     const startTime = Date.now();
     let move;
@@ -391,6 +404,7 @@ export class UIManager {
       this.codexMessageEl.textContent = error instanceof Error
         ? `${error.message} 这手还没有落下。`
         : '我这边暂时没有接上，这手还没有落下。';
+      this.retryCodexBtn.classList.remove('hidden');
       return;
     }
 
@@ -464,6 +478,7 @@ export class UIManager {
     this.game.onMoveMade = () => this.onMoveMade();
     this.game.start();
     this.codexMessageEl.textContent = '你先落子，我在这边看着棋盘。';
+    this.retryCodexBtn.classList.add('hidden');
 
     this.renderer.render(this.game);
     this.updateUI();
