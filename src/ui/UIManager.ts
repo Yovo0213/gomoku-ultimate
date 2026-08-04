@@ -2,11 +2,13 @@ import { Game } from '../core/Game';
 import { Player, GameMode, Difficulty, GameConfig, BLACK, WHITE, EMPTY, BOARD_SIZE, MODE_NAMES, DIFFICULTY_NAMES } from '../core/types';
 import { BoardRenderer } from './BoardRenderer';
 import { AI } from '../ai/AI';
+import { CodexPlayer } from '../codex/CodexPlayer';
 
 export class UIManager {
   private game: Game;
   private renderer: BoardRenderer;
   private ai: AI;
+  private codex: CodexPlayer;
   private container: HTMLElement;
   private darkMode: boolean = false;
 
@@ -30,6 +32,7 @@ export class UIManager {
   private resultSubtitleEl!: HTMLElement;
   private themeBtn!: HTMLElement;
   private suggestBtn!: HTMLElement;
+  private codexMessageEl!: HTMLElement;
 
   private currentMode: GameMode = 'pvai';
   private currentDifficulty: Difficulty = 3;
@@ -40,6 +43,7 @@ export class UIManager {
   constructor(container: HTMLElement) {
     this.container = container;
     this.ai = new AI();
+    this.codex = new CodexPlayer();
     this.renderHTML();
     this.bindEvents();
 
@@ -47,7 +51,7 @@ export class UIManager {
       mode: this.currentMode,
       difficulty: this.currentDifficulty,
       aiPlayer: this.aiPlayer,
-      timeLimit: 600, // 10 min per player
+      timeLimit: 0,
     };
 
     this.game = new Game(config);
@@ -69,8 +73,8 @@ export class UIManager {
           <div class="logo">
             <span class="logo-icon">♟</span>
             <div class="logo-text">
-              <h1>五子棋</h1>
-              <span class="logo-sub">GOMOKU ULTIMATE</span>
+              <h1>落与砚的五子棋</h1>
+              <span class="logo-sub">一局慢慢下完</span>
             </div>
           </div>
           <div class="header-actions">
@@ -116,8 +120,13 @@ export class UIManager {
           <div class="controls-section">
             <!-- Status -->
             <div class="status-bar" id="statusBar">
-              <div class="status-icon" id="statusIcon">⚪</div>
+              <div class="status-icon" id="statusIcon">·</div>
               <span id="statusText">点击「新游戏」开始</span>
+            </div>
+
+            <div class="codex-note" aria-live="polite">
+              <span class="codex-note-label">砚</span>
+              <p id="codexMessage">你先落子，我在这边看着棋盘。</p>
             </div>
 
             <!-- Game modes -->
@@ -209,7 +218,7 @@ export class UIManager {
         <!-- Thinking indicator -->
         <div class="thinking-indicator hidden" id="thinkingIndicator">
           <div class="thinking-spinner"></div>
-          <span>AI 思考中...</span>
+          <span>砚在想这一手...</span>
         </div>
       </div>
     `;
@@ -234,6 +243,7 @@ export class UIManager {
     this.resultSubtitleEl = this.container.querySelector('#resultSubtitle')!;
     this.themeBtn = this.container.querySelector('#themeBtn')!;
     this.suggestBtn = this.container.querySelector('#suggestBtn')!;
+    this.codexMessageEl = this.container.querySelector('#codexMessage')!;
   }
 
   private bindEvents(): void {
@@ -368,12 +378,21 @@ export class UIManager {
     thinkingIndicator.classList.remove('hidden');
 
     const startTime = Date.now();
-    const move = await this.ai.computeMove(
-      game.board,
-      game.currentPlayer,
-      this.currentDifficulty,
-      () => {}
-    );
+    let move;
+    try {
+      move = await this.codex.computeMove(
+        game.board,
+        game.currentPlayer,
+        game.getMoveHistory(),
+      );
+    } catch (error) {
+      thinkingIndicator.classList.add('hidden');
+      if (this.game !== game) return;
+      this.codexMessageEl.textContent = error instanceof Error
+        ? `${error.message} 这手还没有落下。`
+        : '我这边暂时没有接上，这手还没有落下。';
+      return;
+    }
 
     thinkingIndicator.classList.add('hidden');
 
@@ -388,7 +407,8 @@ export class UIManager {
     }
 
     if (move && game.status === 'playing' && game.isAIThinking()) {
-      game.makeMove(move.row, move.col);
+      if (move.say) this.codexMessageEl.textContent = move.say;
+      game.makeMove(move.position.row, move.position.col);
     }
   }
 
@@ -435,7 +455,7 @@ export class UIManager {
       mode: this.currentMode,
       difficulty: this.currentDifficulty,
       aiPlayer: this.aiPlayer,
-      timeLimit: 600,
+      timeLimit: 0,
     };
 
     this.game = new Game(config);
@@ -443,6 +463,7 @@ export class UIManager {
     this.game.onTimerTick = () => this.onTimerTick();
     this.game.onMoveMade = () => this.onMoveMade();
     this.game.start();
+    this.codexMessageEl.textContent = '你先落子，我在这边看着棋盘。';
 
     this.renderer.render(this.game);
     this.updateUI();
@@ -506,19 +527,21 @@ export class UIManager {
     const statusText = this.container.querySelector('#statusText')!;
 
     if (g.status === 'idle') {
-      statusIcon.textContent = '⚪';
+      statusIcon.textContent = '·';
       statusText.textContent = '点击「新游戏」开始';
     } else if (g.status === 'playing') {
       const isAI = g.isAIThinking();
       if (isAI) {
-        statusIcon.textContent = '🤖';
-        statusText.textContent = `AI (${g.getCurrentPlayerName()}) 思考中...`;
+        statusIcon.textContent = '·';
+        statusText.textContent = `轮到砚 · ${g.getCurrentPlayerName()}`;
       } else if (this.currentMode === 'aivai') {
         statusIcon.textContent = '🧠';
         statusText.textContent = `AI 对弈中 · ${g.getCurrentPlayerName()} 落子`;
       } else {
         statusIcon.textContent = g.currentPlayer === BLACK ? '⚫' : '⚪';
-        statusText.textContent = `轮到 ${g.getCurrentPlayerName()}`;
+        statusText.textContent = this.currentMode === 'pvai'
+          ? `轮到落 · ${g.getCurrentPlayerName()}`
+          : `轮到 ${g.getCurrentPlayerName()}`;
       }
     }
 
@@ -527,8 +550,8 @@ export class UIManager {
     const whiteLabel = this.container.querySelector('#whiteLabel')!;
 
     if (this.currentMode === 'pvai') {
-      blackLabel.textContent = this.aiPlayer === BLACK ? 'AI 黑棋' : '👤 黑棋';
-      whiteLabel.textContent = this.aiPlayer === WHITE ? 'AI 白棋' : '👤 白棋';
+      blackLabel.textContent = this.aiPlayer === BLACK ? '砚 · 黑棋' : '落 · 黑棋';
+      whiteLabel.textContent = this.aiPlayer === WHITE ? '砚 · 白棋' : '落 · 白棋';
     } else if (this.currentMode === 'aivai') {
       blackLabel.textContent = 'AI 黑棋';
       whiteLabel.textContent = 'AI 白棋';
@@ -598,16 +621,16 @@ export class UIManager {
 
       if (g.winner === BLACK) {
         icon.textContent = '⚫';
-        title.textContent = '黑棋获胜！';
+        title.textContent = this.aiPlayer === BLACK ? '砚赢了' : '落赢了';
       } else if (g.winner === WHITE) {
         icon.textContent = '⚪';
-        title.textContent = '白棋获胜！';
+        title.textContent = this.aiPlayer === WHITE ? '砚赢了' : '落赢了';
       } else {
         icon.textContent = '🤝';
         title.textContent = '平局！';
       }
 
-      subtitle.textContent = `共 ${g.board.moveCount} 手 · ${g.mode === 'pvai' ? '人机对战' : g.mode === 'aivai' ? 'AI自对弈' : '双人对战'}`;
+      subtitle.textContent = `这一局一共下了 ${g.board.moveCount} 手`;
 
       this.overlayEl.classList.remove('hidden');
       this.renderer.startWinAnimation();

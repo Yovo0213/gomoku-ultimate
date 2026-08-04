@@ -1,14 +1,15 @@
 {
-  "name": "gomoku-ultimate",
+  "name": "luo-gomoku",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "🏆 终极五子棋 - 最强AI五子棋游戏，支持人机对战、人人对战、AI自对弈",
+  "description": "落与砚可以一起下的本地五子棋。",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview --host 127.0.0.1 --port 8082",
+    "start": "node server.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

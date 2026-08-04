@@ -64,7 +64,7 @@ describe('计时规则', () => {
 
 describe('异步 AI 落子', () => {
   it('重开或换边后拒绝旧棋局的计算结果', async () => {
-    let resolveMove!: (move: { row: number; col: number }) => void;
+    let resolveMove!: (move: { position: { row: number; col: number }; say: string }) => void;
     const oldGame = startGame(0);
     const newGame = startGame(0);
 
@@ -73,14 +73,14 @@ describe('异步 AI 落子', () => {
 
     const ui = Object.create(UIManager.prototype) as UIManager;
     const thinkingIndicator = { classList: { add: vi.fn(), remove: vi.fn() } };
-    const ai = {
-      computeMove: vi.fn(() => new Promise<{ row: number; col: number }>((resolve) => {
+    const codex = {
+      computeMove: vi.fn(() => new Promise<{ position: { row: number; col: number }; say: string }>((resolve) => {
         resolveMove = resolve;
       })),
     };
 
     Object.assign(ui as object, {
-      ai,
+      codex,
       game: oldGame,
       currentDifficulty: 3,
       container: { querySelector: vi.fn(() => thinkingIndicator) },
@@ -88,7 +88,7 @@ describe('异步 AI 落子', () => {
 
     const pendingMove = (ui as any).triggerAIMove();
     (ui as any).game = newGame;
-    resolveMove({ row: 7, col: 8 });
+    resolveMove({ position: { row: 7, col: 8 }, say: '这一手。' });
     await pendingMove;
 
     expect(newGame.board.moveCount).toBe(1);

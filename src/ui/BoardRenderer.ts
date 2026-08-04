@@ -22,21 +22,21 @@ export interface ThemeColors {
 }
 
 const LIGHT_THEME: ThemeColors = {
-  boardBg: '#d4a745',
-  boardBgEnd: '#c49a3a',
-  gridLine: '#5a3a1a',
-  starPoint: '#5a3a1a',
-  blackStone: '#1a1a1a',
-  blackStoneHighlight: '#444444',
-  blackStoneShadow: '#000000',
-  whiteStone: '#f5f5f5',
+  boardBg: '#c9dfe1',
+  boardBgEnd: '#b9d2d5',
+  gridLine: '#66858d',
+  starPoint: '#587a82',
+  blackStone: '#26363d',
+  blackStoneHighlight: '#60737a',
+  blackStoneShadow: '#10191c',
+  whiteStone: '#f5f9f9',
   whiteStoneHighlight: '#ffffff',
-  whiteStoneShadow: '#999999',
-  lastMoveMarker: '#ff3333',
-  winLine: '#ff2200',
-  winGlow: 'rgba(255, 34, 0, 0.3)',
-  labelColor: '#5a3a1a',
-  coordinateColor: '#7a5a2a',
+  whiteStoneShadow: '#b7c9cc',
+  lastMoveMarker: '#bd7f8b',
+  winLine: '#ad6f7b',
+  winGlow: 'rgba(173, 111, 123, 0.24)',
+  labelColor: '#587a82',
+  coordinateColor: '#66858d',
 };
 
 const DARK_THEME: ThemeColors = {
@@ -215,7 +215,7 @@ export class BoardRenderer {
   }
 
   private drawBackground(ctx: CanvasRenderingContext2D, size: number, t: ThemeColors): void {
-    // Wood grain effect using gradient
+    // A quiet, cool board surface rather than the fork's competitive wood texture.
     const grad = ctx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, t.boardBg);
     grad.addColorStop(0.3, t.boardBgEnd);
@@ -224,17 +224,17 @@ export class BoardRenderer {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, size, size);
 
-    // Subtle wood grain lines
+    // Deterministic paper-like lines; unlike random wood grain, these do not flicker on hover.
     ctx.save();
-    ctx.globalAlpha = 0.05;
-    ctx.strokeStyle = '#000';
+    ctx.globalAlpha = 0.08;
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
-    for (let i = 0; i < 30; i++) {
-      const y = Math.random() * size;
+    for (let i = 0; i < 12; i++) {
+      const y = (i + 1) * size / 13;
       ctx.beginPath();
       ctx.moveTo(0, y);
-      for (let x = 0; x < size; x += 5) {
-        ctx.lineTo(x, y + Math.sin(x * 0.02) * 3);
+      for (let x = 0; x <= size; x += 8) {
+        ctx.lineTo(x, y + Math.sin((x + i * 13) * 0.025) * 1.5);
       }
       ctx.stroke();
     }
@@ -242,11 +242,11 @@ export class BoardRenderer {
 
     // Border shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.shadowColor = 'rgba(63, 94, 102, 0.2)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3;
+    ctx.strokeStyle = 'rgba(73, 109, 117, 0.25)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, size, size);
     ctx.restore();
