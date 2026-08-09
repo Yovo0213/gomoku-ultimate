@@ -202,9 +202,7 @@ export class CodexGameThreadClient {
 
   stop() {
     const child = this.child;
-    this.child = null;
-    this.forkThreads.clear();
-    this.pendingMoves.clear();
+    this.failAll(new Error('五子棋 Codex App Server 已停止。'));
     if (child && !child.killed) child.kill('SIGTERM');
   }
 
@@ -239,11 +237,22 @@ export class CodexGameThreadClient {
         string(item.tool) === 'place_move' &&
         string(item.status) === 'completed'
       ) {
-        const move = object(item.arguments);
+        const result = object(item.result);
+        const structuredContent = object(result.structuredContent);
+        const move = object(structuredContent.move);
+        if (
+          (item.error !== undefined && item.error !== null)
+          || result.isError === true
+          || string(structuredContent.status) !== 'ready'
+          || Array.isArray(move)
+          || Object.keys(move).length === 0
+        ) return;
         const modelTurnId = string(params.turnId);
         const turn = this.turns.get(modelTurnId);
-        if (turn) turn.move = move;
-        else if (modelTurnId) this.pendingMoves.set(modelTurnId, move);
+        if (turn && !turn.move) turn.move = move;
+        else if (!turn && modelTurnId && !this.pendingMoves.has(modelTurnId)) {
+          this.pendingMoves.set(modelTurnId, move);
+        }
       }
       return;
     }
@@ -260,9 +269,13 @@ export class CodexGameThreadClient {
       clearTimeout(turn.timer);
       this.turns.delete(turnId);
       const status = string(completed.status) || string(object(completed.status).type);
-      status && status !== 'completed'
-        ? turn.reject(new Error(`Codex 五子棋回合未完成：${status}`))
-        : turn.resolve({ output: turn.output.trim(), move: turn.move });
+      if (status && status !== 'completed') {
+        turn.reject(new Error(`Codex 五子棋回合未完成：${status}`));
+      } else if (!turn.move) {
+        turn.reject(new Error('Codex 没有通过五子棋工具完成落子。'));
+      } else {
+        turn.resolve({ output: turn.output.trim(), move: turn.move });
+      }
     }
   }
 

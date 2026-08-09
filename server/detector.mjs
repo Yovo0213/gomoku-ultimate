@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { open, readFile, rename, unlink, writeFile, mkdir } from 'node:fs/promises';
+import { link, open, readFile, rename, unlink, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { CodexGameThreadClient, resolveCodexBinary } from './codex-game-thread.mjs';
+import { acquireSourceThreadTurn } from './source-thread-arbiter.mjs';
 
 const exec = promisify(execFile);
 
@@ -15,6 +16,7 @@ const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DEFAULT_CONFIG_PATH = fileURLToPath(new URL('../.runtime/detector-config.json', import.meta.url));
 const DEFAULT_STATE_PATH = fileURLToPath(new URL('../.runtime/detector-state.json', import.meta.url));
 const DEFAULT_LOCK_PATH = fileURLToPath(new URL('../.runtime/detector.lock', import.meta.url));
+const DETECTOR_SCRIPT_PATH = fileURLToPath(import.meta.url);
 const MCP_SERVER_PATH = fileURLToPath(new URL('./gomoku-mcp-server.mjs', import.meta.url));
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8082';
 const POLL_MS = 900;
@@ -171,6 +173,15 @@ function backoffMilliseconds(attempts, random = Math.random) {
   return Math.round(base * (1 + 0.2 * random()));
 }
 
+function sameTurn(left, right) {
+  return Boolean(left && right
+    && left.turnId === right.turnId
+    && left.gameId === right.gameId
+    && left.gameEpoch === right.gameEpoch
+    && left.revision === right.revision
+    && left.status === right.status);
+}
+
 export class GomokuDetector {
   constructor({
     configPath = process.env.LUO_GOMOKU_DETECTOR_CONFIG || DEFAULT_CONFIG_PATH,
@@ -180,6 +191,7 @@ export class GomokuDetector {
     now = () => Date.now(),
     random = Math.random,
     createClient,
+    acquireArbiter = acquireSourceThreadTurn,
   } = {}) {
     this.configPath = configPath;
     this.statePath = statePath;
@@ -188,6 +200,7 @@ export class GomokuDetector {
     this.now = now;
     this.random = random;
     this.createClient = createClient;
+    this.acquireArbiter = acquireArbiter;
     this.client = null;
     this.owner = randomUUID();
     this.sourceBusyUntil = 0;
@@ -317,6 +330,15 @@ export class GomokuDetector {
       return { action: 'source-busy', turnId: turn.turnId };
     }
 
+    const releaseArbiter = await this.acquireArbiter({ threadId: config.threadId });
+    if (!releaseArbiter) return { action: 'other-game-busy', turnId: turn.turnId };
+    try {
+      const refreshed = await fetchCurrentTurn(this.baseUrl, this.fetchImpl);
+      if (!sameTurn(turn, refreshed)) return { action: 'stale-before-play', turnId: turn.turnId };
+      if (!await sourceThreadIsIdle(config.rolloutPath)) {
+        return { action: 'source-busy', turnId: turn.turnId };
+      }
+
     const attempts = state.processingTurnId === turn.turnId ? Number(state.attempts || 0) + 1 : 1;
     await writeJson(this.statePath, {
       ...state,
@@ -370,35 +392,145 @@ export class GomokuDetector {
       });
       return { action: 'retry', turnId: turn.turnId, nextAttemptAt };
     }
+    } finally {
+      await releaseArbiter();
+    }
   }
 }
 
-async function acquireProcessLock(pathname = process.env.LUO_GOMOKU_DETECTOR_LOCK || DEFAULT_LOCK_PATH) {
-  await mkdir(dirname(pathname), { recursive: true });
+async function readProcessIdentity(pid) {
   try {
-    const handle = await open(pathname, 'wx', 0o600);
-    await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`);
-    return async () => {
-      await handle.close().catch(() => {});
-      await unlink(pathname).catch(() => {});
-    };
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-    let stale = true;
-    try {
-      const existing = JSON.parse(await readFile(pathname, 'utf8'));
-      const pid = Number(existing.pid);
-      if (!Number.isInteger(pid) || pid <= 1) throw new Error('invalid lock pid');
-      process.kill(pid, 0);
-      const { stdout } = await exec('/bin/ps', ['-p', String(pid), '-o', 'command=']);
-      stale = !stdout.includes('server/detector.mjs');
-    } catch (lockError) {
-      stale = lockError?.code !== 'EPERM';
-    }
-    if (!stale) return null;
-    await unlink(pathname).catch(() => {});
-    return acquireProcessLock(pathname);
+    const { stdout } = await exec('/bin/ps', [
+      '-p', String(pid),
+      '-o', 'lstart=',
+      '-o', 'command=',
+    ]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
   }
+}
+
+function validLockRecord(value) {
+  return Boolean(
+    value
+      && typeof value.owner === 'string'
+      && value.owner
+      && Number.isInteger(value.pid)
+      && value.pid > 1
+      && typeof value.processIdentity === 'string'
+      && value.processIdentity
+      && typeof value.scriptPath === 'string'
+      && value.scriptPath,
+  );
+}
+
+async function publishProcessLock(pathname, record) {
+  const temporary = `${pathname}.${record.owner}.${randomUUID()}.tmp`;
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(`${JSON.stringify(record)}\n`);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    try {
+      await link(temporary, pathname);
+      return true;
+    } catch (error) {
+      if (error?.code === 'EEXIST') return false;
+      throw error;
+    }
+  } finally {
+    await handle?.close().catch(() => {});
+    await unlink(temporary).catch(() => {});
+  }
+}
+
+async function unlinkIfUnchanged(pathname, observedText) {
+  try {
+    if (await readFile(pathname, 'utf8') !== observedText) return false;
+    await unlink(pathname);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export async function acquireProcessLock(
+  pathname = process.env.LUO_GOMOKU_DETECTOR_LOCK || DEFAULT_LOCK_PATH,
+  {
+    owner = randomUUID(),
+    pid = process.pid,
+    scriptPath = DETECTOR_SCRIPT_PATH,
+    getProcessIdentity = readProcessIdentity,
+  } = {},
+) {
+  await mkdir(dirname(pathname), { recursive: true });
+  const processIdentity = await getProcessIdentity(pid);
+  if (!processIdentity) throw new Error(`无法确认五子棋检测器进程 ${pid} 的身份。`);
+  const record = {
+    owner,
+    pid,
+    processIdentity,
+    scriptPath,
+    startedAt: new Date().toISOString(),
+  };
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (await publishProcessLock(pathname, record)) {
+      let released = false;
+      return async () => {
+        if (released) return;
+        released = true;
+        let currentText;
+        try {
+          currentText = await readFile(pathname, 'utf8');
+        } catch (error) {
+          if (error?.code === 'ENOENT') return;
+          throw error;
+        }
+        let current;
+        try {
+          current = JSON.parse(currentText);
+        } catch {
+          return;
+        }
+        if (
+          current.owner !== record.owner
+          || current.pid !== record.pid
+          || current.processIdentity !== record.processIdentity
+          || current.scriptPath !== record.scriptPath
+        ) return;
+        await unlinkIfUnchanged(pathname, currentText);
+      };
+    }
+
+    let observedText;
+    try {
+      observedText = await readFile(pathname, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw error;
+    }
+    let existing;
+    try {
+      existing = JSON.parse(observedText);
+    } catch {
+      existing = null;
+    }
+    if (validLockRecord(existing)) {
+      const liveIdentity = await getProcessIdentity(existing.pid);
+      if (
+        existing.scriptPath === scriptPath
+        && liveIdentity
+        && liveIdentity === existing.processIdentity
+      ) return null;
+    }
+    await unlinkIfUnchanged(pathname, observedText);
+  }
+  throw new Error('五子棋检测器进程锁持续发生竞争，无法安全取得。');
 }
 
 export async function runForever(options = {}) {
@@ -426,6 +558,7 @@ export async function runForever(options = {}) {
         'leased',
         'service-unavailable',
         'source-busy',
+        'other-game-busy',
       ].includes(result.action)) {
         const serialized = JSON.stringify(result);
         if (serialized !== lastLog) process.stdout.write(`${serialized}\n`);
