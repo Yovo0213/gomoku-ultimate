@@ -9,7 +9,9 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1 --port 8082",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "detector": "node server/detector.mjs",
+    "install:macos": "node scripts/install-macos.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

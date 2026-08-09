@@ -21,7 +21,7 @@ interface TurnResponse extends MoveResponse {
 }
 
 const POLL_INTERVAL_MS = 900;
-const WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+const WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 function pause(milliseconds: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, milliseconds));
@@ -34,7 +34,14 @@ export class CodexPlayer {
     return this.thinking;
   }
 
-  async computeMove(board: Board, player: Player, moves: Move[]): Promise<CodexMove> {
+  async computeMove(
+    board: Board,
+    player: Player,
+    moves: Move[],
+    gameId: string,
+    gameEpoch: number,
+    revision: number,
+  ): Promise<CodexMove> {
     this.thinking = true;
 
     try {
@@ -45,6 +52,9 @@ export class CodexPlayer {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          gameId,
+          gameEpoch,
+          revision,
           board: board.toJSON(),
           player,
           moves: moves.map(({ row, col, player: movePlayer }) => ({
@@ -73,6 +83,9 @@ export class CodexPlayer {
         if (turnResponse.status === 202) continue;
         if (!turnResponse.ok) {
           throw new Error(typeof turn.error === 'string' ? turn.error : '当前任务没有接住这一手。');
+        }
+        if (turn.status === 'failed') {
+          throw new Error(typeof turn.error === 'string' ? turn.error : '砚暂时没有接住这一手。');
         }
         move = turn.move && typeof turn.move === 'object' ? turn.move : null;
         break;

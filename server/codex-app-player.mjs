@@ -34,6 +34,19 @@ export function validateMoveRequest(value) {
   const request = object(value);
   const board = request.board;
   const player = request.player;
+  const gameId = string(request.gameId).trim();
+  const gameEpoch = request.gameEpoch;
+  const revision = request.revision;
+
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(gameId)) {
+    throw new Error('棋局缺少有效的 gameId。');
+  }
+  if (!Number.isSafeInteger(gameEpoch) || gameEpoch < 0) {
+    throw new Error('棋局 gameEpoch 无效。');
+  }
+  if (!Number.isInteger(revision) || revision < 0 || revision > 100_000) {
+    throw new Error('棋局 revision 无效。');
+  }
 
   if (!Array.isArray(board) || board.length !== BOARD_SIZE) {
     throw new Error('棋盘必须是 15×15。');
@@ -72,7 +85,7 @@ export function validateMoveRequest(value) {
         .map(move => ({ row: move.row, col: move.col, player: move.player }))
     : [];
 
-  return { board, player, candidates, moves };
+  return { gameId, gameEpoch, revision, board, player, candidates, moves };
 }
 
 export function parseCodexMoveOutput(output, board) {

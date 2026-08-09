@@ -4,6 +4,11 @@ import { BoardRenderer } from './BoardRenderer';
 import { AI } from '../ai/AI';
 import { CodexPlayer } from '../codex/CodexPlayer';
 
+function nextGameEpoch(previous: number): number {
+  const entropy = crypto.getRandomValues(new Uint16Array(1))[0] & 0x0fff;
+  return Math.max((Date.now() * 4096) + entropy, previous + 1);
+}
+
 export class UIManager {
   private game: Game;
   private renderer: BoardRenderer;
@@ -40,6 +45,8 @@ export class UIManager {
   private aiPlayer: Player = WHITE; // Human plays BLACK by default
   private showSuggestions: boolean = false;
   private suggestionGen: number = 0; // incremented on each move to discard stale computations
+  private gameId: string = crypto.randomUUID();
+  private gameEpoch: number = nextGameEpoch(0);
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -306,6 +313,7 @@ export class UIManager {
         this.game.currentPlayer === this.aiPlayer &&
         !this.codex.isThinking()
       ) {
+        this.suggestionGen++;
         void this.triggerAIMove();
       }
     });
@@ -398,6 +406,9 @@ export class UIManager {
         game.board,
         game.currentPlayer,
         game.getMoveHistory(),
+        this.gameId,
+        this.gameEpoch,
+        this.suggestionGen,
       );
     } catch (error) {
       thinkingIndicator.classList.add('hidden');
@@ -465,6 +476,8 @@ export class UIManager {
   private resetGame(): void {
     this.hideOverlay();
     this.game.destroy();
+    this.gameId = crypto.randomUUID();
+    this.gameEpoch = nextGameEpoch(this.gameEpoch);
 
     const config: GameConfig = {
       mode: this.currentMode,
